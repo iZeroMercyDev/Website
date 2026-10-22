@@ -1,19 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getActor, unauthorized } from "@/server/auth/actor";
 import { prisma } from "@/server/db";
 
 export async function GET(req: NextRequest) {
-  const username = req.nextUrl.searchParams.get("username")?.trim();
-  if (!username) {
-    return NextResponse.json({ error: "username is required" }, { status: 400 });
-  }
+  const actor = await getActor(req, req.nextUrl.searchParams.get("username"));
+  if (!actor) return unauthorized();
 
-  const user = await prisma.user.findFirst({
-    where: { username: { equals: username, mode: "insensitive" } },
+  const user = await prisma.user.findUnique({
+    where: { id: actor.id },
     select: { id: true, username: true, createdAt: true },
   });
-  if (!user) {
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
-  }
+  if (!user) return unauthorized();
 
   const [listEntries, watchHistory, reviews, comments] = await Promise.all([
     prisma.listEntry.findMany({

@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getActor, unauthorized } from "@/server/auth/actor";
 import { prisma }          from "@/server/db";
 import { syncAniListList } from "@/server/services/anilist-sync";
 
 export async function POST(req: NextRequest) {
-  const { username } = await req.json() as { username?: string };
-  if (!username) return NextResponse.json({ error: "Missing username" }, { status: 400 });
+  const { username } = (await req.json().catch(() => ({}))) as { username?: string };
+  const actor = await getActor(req, username);
+  if (!actor) return unauthorized();
 
-  const user = await prisma.user.findFirst({
-    where:  { username: { equals: username, mode: "insensitive" } },
+  const user = await prisma.user.findUnique({
+    where:  { id: actor.id },
     select: { id: true, anilistId: true, anilistToken: true },
   });
 
-  if (!user) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!user) return unauthorized();
   if (!user.anilistId || !user.anilistToken) {
     return NextResponse.json({ error: "AniList not connected" }, { status: 400 });
   }

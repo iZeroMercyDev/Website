@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getActor, unauthorized } from "@/server/auth/actor";
 import { put, del } from "@vercel/blob";
 import { prisma } from "@/server/db";
 
@@ -34,11 +35,13 @@ export async function POST(req: NextRequest) {
     if (file.size > MAX_BYTES)
       return NextResponse.json({ error: "Image must be under 4MB." }, { status: 400 });
 
-    const user = await prisma.user.findFirst({
-      where: { username: { equals: username, mode: "insensitive" } },
+    const actor = await getActor(req, username);
+    if (!actor) return unauthorized();
+    const user = await prisma.user.findUnique({
+      where: { id: actor.id },
       select: { id: true, image: true, banner: true },
     });
-    if (!user) return NextResponse.json({ error: "Account not found." }, { status: 401 });
+    if (!user) return unauthorized();
 
     const ext = EXT_BY_TYPE[file.type];
     const blob = await put(`profile/${kind}s/${user.id}.${ext}`, file, {

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getActor, unauthorized, canModerate } from "@/server/auth/actor";
 import { prisma } from "@/server/db";
 
 async function getParty(code: string) {
@@ -26,7 +27,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ code: 
   const body = await req.json() as {
     username?: string; episode?: number; currentTime?: number; isPlaying?: boolean; join?: boolean; leave?: boolean;
   };
-  const { username, episode, currentTime, isPlaying, join, leave } = body;
+  const { episode, currentTime, isPlaying, join, leave } = body;
+  const actor = await getActor(req, body.username);
+  if (!actor) return unauthorized();
+  const username = actor.username;
 
   const data: Record<string, unknown> = {};
 
@@ -53,8 +57,11 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ code:
   const { code } = await params;
   const party = await getParty(code);
   if (!party) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const { username } = await req.json() as { username: string };
-  if (party.hostName !== username) return NextResponse.json({ error: "Only host can close" }, { status: 403 });
+  const { username } = (await req.json().catch(() => ({}))) as { username?: string };
+  const actor = await getActor(req, username);
+  if (!actor) return unauthorized();
+  if (party.hostName !== actor.username && !canModerate(actor))
+    return NextResponse.json({ error: "Only host can close" }, { status: 403 });
   await prisma.watchParty.delete({ where: { code: code.toUpperCase() } });
   return NextResponse.json({ ok: true });
 }

@@ -1,20 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/server/db";
+import { getActor, unauthorized, canModerate } from "@/server/auth/actor";
 
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; commentId: string }> }
 ) {
   const { commentId } = await params;
-  const username = req.nextUrl.searchParams.get("username")?.trim();
-  if (!username) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+  const actor = await getActor(req, req.nextUrl.searchParams.get("username"));
+  if (!actor) return unauthorized();
 
-  const comment = await prisma.comment.findUnique({
+  const row = await prisma.comment.findUnique({
     where: { id: commentId },
-    select: { User: { select: { username: true } } },
+    select: { userId: true },
   });
-  if (!comment) return NextResponse.json({ error: "Comment not found." }, { status: 404 });
-  if (comment.User.username?.toLowerCase() !== username.toLowerCase())
+  if (!row) return NextResponse.json({ error: "Comment not found." }, { status: 404 });
+  if (row.userId !== actor.id && !canModerate(actor))
     return NextResponse.json({ error: "You can only delete your own comment." }, { status: 403 });
 
   // onDelete: Cascade on the parent self-relation removes any replies too.

@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getActor, unauthorized } from "@/server/auth/actor";
 import { prisma } from "@/server/db";
 
 export async function GET(req: NextRequest) {
-  const username = req.nextUrl.searchParams.get("username")?.trim();
-  if (!username) return NextResponse.json({ settings: null });
+  const actor = await getActor(req, req.nextUrl.searchParams.get("username"));
+  if (!actor) return NextResponse.json({ settings: null });
 
-  const user = await prisma.user.findFirst({
-    where: { username: { equals: username, mode: "insensitive" } },
+  const user = await prisma.user.findUnique({
+    where: { id: actor.id },
     select: { settings: true, updatedAt: true },
   });
 
@@ -24,11 +25,9 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
     }
 
-    const user = await prisma.user.findFirst({
-      where: { username: { equals: un, mode: "insensitive" } },
-      select: { id: true },
-    });
-    if (!user) return NextResponse.json({ error: "User not found." }, { status: 404 });
+    const actor = await getActor(req, un);
+    if (!actor) return unauthorized();
+    const user = { id: actor.id };
 
     const updated = await prisma.user.update({
       where: { id: user.id },

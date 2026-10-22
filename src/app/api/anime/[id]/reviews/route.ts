@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getActor, unauthorized } from "@/server/auth/actor";
 import { prisma } from "@/server/db";
 import { ensureAnimeCached } from "@/server/services/ensure-anime";
 
@@ -41,11 +42,9 @@ export async function POST(
     if (typeof body !== "string" || body.trim().length < 5)
       return NextResponse.json({ error: "Review must be at least 5 characters." }, { status: 400 });
 
-    const user = await prisma.user.findFirst({
-      where: { username: { equals: un, mode: "insensitive" } },
-      select: { id: true },
-    });
-    if (!user) return NextResponse.json({ error: "Account not found." }, { status: 401 });
+    const actor = await getActor(req, un);
+    if (!actor) return unauthorized();
+    const user = { id: actor.id };
 
     const localId = await ensureAnimeCached(anilistId);
 

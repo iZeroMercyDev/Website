@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma }          from "@/server/db";
 import { syncAniListList } from "@/server/services/anilist-sync";
+import { getActor, OAUTH_STATE_COOKIE } from "@/server/auth/actor";
+import { getAuthSecret } from "@/server/auth/session";
 
 const SETTINGS_REDIRECT = (origin: string, error?: string) =>
   `${origin}/settings?tab=connections${error ? `&error=${error}` : "&success=anilist"}`;
@@ -14,19 +16,33 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(SETTINGS_REDIRECT(origin, "cancelled"));
   }
 
-  let username: string;
-  try {
-    const state = JSON.parse(Buffer.from(stateRaw, "base64url").toString()) as unknown;
-    if (
-      typeof state !== "object" || state === null ||
-      typeof (state as Record<string, unknown>).username !== "string" ||
-      typeof (state as Record<string, unknown>).ts !== "number"
-    ) throw new Error("bad state");
-    const { username: stateUsername, ts } = state as { username: string; ts: number };
-    if (Date.now() - ts > 10 * 60 * 1000) throw new Error("expired");
-    username = stateUsername;
-  } catch {
-    return NextResponse.redirect(SETTINGS_REDIRECT(origin, "invalid_state"));
+  const secure = getAuthSecret() !== null;
+  let username = "";
+  let sessionUserId: string | null = null;
+
+  if (secure) {
+    // State must match the nonce cookie set when the flow started; identity comes from the session.
+    const nonce = req.cookies.get(OAUTH_STATE_COOKIE)?.value;
+    if (!nonce || nonce !== stateRaw) {
+      return NextResponse.redirect(SETTINGS_REDIRECT(origin, "invalid_state"));
+    }
+    const actor = await getActor(req);
+    if (!actor) return NextResponse.redirect(SETTINGS_REDIRECT(origin, "user_not_found"));
+    sessionUserId = actor.id;
+  } else {
+    try {
+      const state = JSON.parse(Buffer.from(stateRaw, "base64url").toString()) as unknown;
+      if (
+        typeof state !== "object" || state === null ||
+        typeof (state as Record<string, unknown>).username !== "string" ||
+        typeof (state as Record<string, unknown>).ts !== "number"
+      ) throw new Error("bad state");
+      const { username: stateUsername, ts } = state as { username: string; ts: number };
+      if (Date.now() - ts > 10 * 60 * 1000) throw new Error("expired");
+      username = stateUsername;
+    } catch {
+      return NextResponse.redirect(SETTINGS_REDIRECT(origin, "invalid_state"));
+    }
   }
 
   const clientId     = process.env.ANILIST_CLIENT_ID;
@@ -68,10 +84,12 @@ export async function GET(req: NextRequest) {
   if (!viewer) return NextResponse.redirect(SETTINGS_REDIRECT(origin, "viewer"));
 
   // Find user in DB
-  const user = await prisma.user.findFirst({
-    where:  { username: { equals: username, mode: "insensitive" } },
-    select: { id: true },
-  });
+  const user = sessionUserId
+    ? { id: sessionUserId }
+    : await prisma.user.findFirst({
+        where:  { username: { equals: username, mode: "insensitive" } },
+        select: { id: true },
+      });
   if (!user) return NextResponse.redirect(SETTINGS_REDIRECT(origin, "user_not_found"));
 
   // Save AniList credentials
@@ -87,5 +105,7 @@ export async function GET(req: NextRequest) {
     console.error("[anilist-callback] sync failed:", err);
   }
 
-  return NextResponse.redirect(SETTINGS_REDIRECT(origin));
+  const done = NextResponse.redirect(SETTINGS_REDIRECT(origin));
+  if (secure) done.cookies.set(OAUTH_STATE_COOKIE, "", { path: "/api/auth/anilist", maxAge: 0 });
+  return done;
 }

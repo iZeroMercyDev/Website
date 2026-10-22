@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getActor, unauthorized } from "@/server/auth/actor";
 import { prisma } from "@/server/db";
 import type { ListStatus } from "@prisma/client";
 
@@ -95,11 +96,9 @@ export async function PATCH(req: NextRequest) {
       data.banner = v || null;
     }
 
-    const user = await prisma.user.findFirst({
-      where: { username: { equals: un, mode: "insensitive" } },
-      select: { id: true },
-    });
-    if (!user) return NextResponse.json({ error: "Account not found." }, { status: 401 });
+    const actor = await getActor(req, un);
+    if (!actor) return unauthorized();
+    const user = { id: actor.id };
 
     const updated = await prisma.user.update({
       where: { id: user.id },

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getActor } from "@/server/auth/actor";
 import { prisma } from "@/server/db";
 import { pushProgressToAniList } from "@/server/services/anilist-push";
 
@@ -15,8 +16,11 @@ export async function POST(
       return NextResponse.json({ error: "Invalid request." }, { status: 400 });
     }
 
-    const user = await prisma.user.findFirst({
-      where: { username: { equals: username as string, mode: "insensitive" } },
+    const actor = await getActor(req, username as string);
+    if (!actor) return NextResponse.json({ synced: false, reason: "not_signed_in" }, { status: 401 });
+
+    const user = await prisma.user.findUnique({
+      where: { id: actor.id },
       select: { anilistToken: true, anilistId: true },
     });
 

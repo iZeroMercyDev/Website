@@ -1,16 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getActor, unauthorized } from "@/server/auth/actor";
 import { prisma } from "@/server/db";
 
 export async function GET(req: NextRequest) {
-  const username = req.nextUrl.searchParams.get("username")?.trim();
-  if (!username)
-    return NextResponse.json({ error: "Username required." }, { status: 400 });
-
-  const user = await prisma.user.findFirst({
-    where: { username: { equals: username, mode: "insensitive" } },
-    select: { id: true },
-  });
-  if (!user) return NextResponse.json({ error: "User not found." }, { status: 404 });
+  const actor = await getActor(req, req.nextUrl.searchParams.get("username"));
+  if (!actor) return unauthorized();
+  const user = { id: actor.id };
 
   const history = await prisma.watchHistory.findMany({
     where: { userId: user.id },
@@ -60,11 +55,9 @@ export async function POST(req: NextRequest) {
     if (!Number.isFinite(prog) || prog < 0)
       return NextResponse.json({ error: "Invalid progress." }, { status: 400 });
 
-    const user = await prisma.user.findFirst({
-      where: { username: { equals: un, mode: "insensitive" } },
-      select: { id: true },
-    });
-    if (!user) return NextResponse.json({ error: "User not found." }, { status: 404 });
+    const actor = await getActor(req, un);
+    if (!actor) return unauthorized();
+    const user = { id: actor.id };
 
     // Ensure the Anime row exists — WatchHistory has a required FK to Anime.
     // Use the animeId as both id and a URL-safe slug so the upsert always succeeds.
@@ -114,14 +107,9 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const username = req.nextUrl.searchParams.get("username")?.trim();
   const animeId  = req.nextUrl.searchParams.get("animeId")?.trim();
-  if (!username)
-    return NextResponse.json({ error: "Username required." }, { status: 400 });
-
-  const user = await prisma.user.findFirst({
-    where: { username: { equals: username, mode: "insensitive" } },
-    select: { id: true },
-  });
-  if (!user) return NextResponse.json({ error: "User not found." }, { status: 404 });
+  const actor = await getActor(req, username);
+  if (!actor) return unauthorized();
+  const user = { id: actor.id };
 
   if (animeId) {
     await prisma.watchHistory.deleteMany({ where: { userId: user.id, animeId } });

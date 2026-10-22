@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getActor, unauthorized } from "@/server/auth/actor";
 import { prisma } from "@/server/db";
 
 function genCode(): string {
@@ -12,6 +13,8 @@ export async function POST(req: Request) {
       animeId: number; animeTitle: string; animeCover?: string; episode: number; username: string;
     };
     if (!animeId || !username) return NextResponse.json({ error: "Missing fields" }, { status: 400 });
+    const actor = await getActor(req, username);
+    if (!actor) return unauthorized();
 
     const expiresAt = new Date(Date.now() + 6 * 60 * 60 * 1000);
     let party;
@@ -19,7 +22,7 @@ export async function POST(req: Request) {
       const code = genCode();
       try {
         party = await prisma.watchParty.create({
-          data: { code, animeId, animeTitle, animeCover: animeCover ?? null, episode, currentTime: 0, isPlaying: false, hostName: username, memberNames: [username], expiresAt },
+          data: { code, animeId, animeTitle, animeCover: animeCover ?? null, episode, currentTime: 0, isPlaying: false, hostName: actor.username, memberNames: [actor.username], expiresAt },
         });
         break;
       } catch (e: unknown) {

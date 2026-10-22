@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getActor, unauthorized } from "@/server/auth/actor";
 import { prisma }               from "@/server/db";
 import { ensureAnimeCached }    from "@/server/services/ensure-anime";
 import { pushStatusToAniList }  from "@/server/services/anilist-push";
@@ -11,15 +12,12 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const username = req.nextUrl.searchParams.get("username")?.trim();
-  if (!username) return NextResponse.json({ status: null });
+  const actor = await getActor(req, req.nextUrl.searchParams.get("username"));
+  if (!actor) return NextResponse.json({ status: null });
 
   const localId = `anilist:${id}`;
   const entry = await prisma.listEntry.findFirst({
-    where: {
-      animeId: localId,
-      User: { username: { equals: username, mode: "insensitive" } },
-    },
+    where: { animeId: localId, userId: actor.id },
     select: { status: true },
   });
 
@@ -38,11 +36,13 @@ export async function POST(
     const un = (typeof username === "string" ? username : "").trim();
     if (!un) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
-    const user = await prisma.user.findFirst({
-      where: { username: { equals: un, mode: "insensitive" } },
+    const actor = await getActor(req, un);
+    if (!actor) return unauthorized();
+    const user = await prisma.user.findUnique({
+      where: { id: actor.id },
       select: { id: true, anilistId: true, anilistToken: true },
     });
-    if (!user) return NextResponse.json({ error: "Account not found." }, { status: 401 });
+    if (!user) return unauthorized();
 
     const localId = await ensureAnimeCached(anilistId);
 
