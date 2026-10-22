@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/server/db";
+import { attachSession } from "@/server/auth/cookie";
 
 export async function POST(req: NextRequest) {
   try {
@@ -29,10 +30,12 @@ export async function POST(req: NextRequest) {
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
       data: { username: un, name: un, passwordHash },
-      select: { username: true },
+      select: { id: true, username: true, role: true },
     });
 
-    return NextResponse.json({ user });
+    const res = NextResponse.json({ user: { username: user.username } });
+    await attachSession(res, user);
+    return res;
   } catch (e) {
     console.error("signup error", e);
     return NextResponse.json({ error: "Sign-up failed. Please try again." }, { status: 500 });

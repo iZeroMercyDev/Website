@@ -34,6 +34,7 @@ const schema = z.object({
 export type Env = z.infer<typeof schema>;
 
 const FEATURES: { name: string; anyOf?: (keyof Env)[]; allOf?: (keyof Env)[] }[] = [
+  { name: "Secure sessions & /admin (AUTH_SECRET)", allOf: ["AUTH_SECRET"] },
   { name: "AniList account sync", allOf: ["ANILIST_CLIENT_ID", "ANILIST_CLIENT_SECRET"] },
   { name: "Profile picture/banner uploads", allOf: ["BLOB_READ_WRITE_TOKEN"] },
   { name: "Live captions (AssemblyAI)", allOf: ["ASSEMBLYAI_API_KEY"] },
@@ -78,6 +79,10 @@ export function reportEnv(): void {
   }
   if (r.disabled.length) {
     console.warn("[env] Optional features disabled (env not set): " + r.disabled.join(", "));
+  }
+  const sec = r.env?.AUTH_SECRET;
+  if (sec && (sec.length < 16 || sec === "changeme-in-production")) {
+    console.warn("[env] AUTH_SECRET is too short or still the example value — sessions/admin stay disabled. Use: openssl rand -base64 32");
   }
   if (!r.env?.STREAMING_API_URL) {
     console.warn("[env] STREAMING_API_URL not set — falling back to the built-in default.");

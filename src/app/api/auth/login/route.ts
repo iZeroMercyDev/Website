@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/server/db";
+import { attachSession } from "@/server/auth/cookie";
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,7 +13,7 @@ export async function POST(req: NextRequest) {
 
     const user = await prisma.user.findFirst({
       where: { username: { equals: un, mode: "insensitive" } },
-      select: { username: true, passwordHash: true },
+      select: { id: true, username: true, passwordHash: true, role: true },
     });
 
     if (!user || !user.passwordHash)
@@ -22,7 +23,9 @@ export async function POST(req: NextRequest) {
     if (!match)
       return NextResponse.json({ error: "Incorrect password." }, { status: 401 });
 
-    return NextResponse.json({ user: { username: user.username } });
+    const res = NextResponse.json({ user: { username: user.username } });
+    await attachSession(res, user);
+    return res;
   } catch (e) {
     console.error("login error", e);
     return NextResponse.json({ error: "Sign-in failed. Please try again." }, { status: 500 });

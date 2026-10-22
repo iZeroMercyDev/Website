@@ -55,7 +55,11 @@ export const useAuthStore = create<AuthState>()(
         return null;
       },
 
-      logout: () => set({ currentUser: null, avatar: null }),
+      logout: () => {
+        // Also clear the server session cookie (fire-and-forget).
+        fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+        set({ currentUser: null, avatar: null });
+      },
       setRemember: (v) => set({ remember: v }),
       setAvatar: (url) => set({ avatar: url }),
     }),
