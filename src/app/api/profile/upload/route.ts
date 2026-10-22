@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rateLimit, clientIp, tooMany } from "@/server/security/rate-limit";
 import { getActor, unauthorized } from "@/server/auth/actor";
 import { put, del } from "@vercel/blob";
 import { prisma } from "@/server/db";
@@ -42,6 +43,8 @@ export async function POST(req: NextRequest) {
       select: { id: true, image: true, banner: true },
     });
     if (!user) return unauthorized();
+    const rl = rateLimit(`upload:${actor.id}`, 10, 60 * 60 * 1000);
+    if (!rl.ok) return tooMany(rl.retryAfter);
 
     const ext = EXT_BY_TYPE[file.type];
     const blob = await put(`profile/${kind}s/${user.id}.${ext}`, file, {

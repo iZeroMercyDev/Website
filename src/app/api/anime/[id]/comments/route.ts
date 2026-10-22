@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rateLimit, clientIp, tooMany } from "@/server/security/rate-limit";
 import { getActor, unauthorized } from "@/server/auth/actor";
 import { prisma } from "@/server/db";
 import { ensureAnimeCached } from "@/server/services/ensure-anime";
@@ -69,6 +70,8 @@ export async function POST(
     const actor = await getActor(req, un);
     if (!actor) return unauthorized();
     const user = { id: actor.id };
+    const rl = rateLimit(`comment:${actor.id}`, 10, 60000);
+    if (!rl.ok) return tooMany(rl.retryAfter);
 
     const localId = await ensureAnimeCached(anilistId);
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rateLimit, clientIp, tooMany } from "@/server/security/rate-limit";
 import { getActor, unauthorized } from "@/server/auth/actor";
 import { prisma }               from "@/server/db";
 import { ensureAnimeCached }    from "@/server/services/ensure-anime";
@@ -38,6 +39,8 @@ export async function POST(
 
     const actor = await getActor(req, un);
     if (!actor) return unauthorized();
+    const rl = rateLimit(`list-status:${actor.id}`, 30, 60_000);
+    if (!rl.ok) return tooMany(rl.retryAfter);
     const user = await prisma.user.findUnique({
       where: { id: actor.id },
       select: { id: true, anilistId: true, anilistToken: true },

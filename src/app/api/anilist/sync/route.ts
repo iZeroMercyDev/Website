@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rateLimit, clientIp, tooMany } from "@/server/security/rate-limit";
 import { getActor, unauthorized } from "@/server/auth/actor";
 import { prisma }          from "@/server/db";
 import { syncAniListList } from "@/server/services/anilist-sync";
@@ -7,6 +8,8 @@ export async function POST(req: NextRequest) {
   const { username } = (await req.json().catch(() => ({}))) as { username?: string };
   const actor = await getActor(req, username);
   if (!actor) return unauthorized();
+  const rl = rateLimit(`anilist-sync:${actor.id}`, 3, 5 * 60 * 1000);
+  if (!rl.ok) return tooMany(rl.retryAfter);
 
   const user = await prisma.user.findUnique({
     where:  { id: actor.id },

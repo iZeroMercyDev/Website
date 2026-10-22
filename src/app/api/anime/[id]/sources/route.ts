@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rateLimit, clientIp, tooMany } from "@/server/security/rate-limit";
 import { getActor, unauthorized } from "@/server/auth/actor";
 import { prisma } from "@/server/db";
 import { ensureAnimeCached } from "@/server/services/ensure-anime";
@@ -15,7 +16,7 @@ const SOURCE_SELECT = {
 function isSafeUrl(value: string): boolean {
   try {
     const u = new URL(value);
-    return u.protocol === "https:" || u.protocol === "http:";
+    return u.protocol === "https:" && value.length <= 2048;
   } catch {
     return false;
   }
@@ -51,11 +52,13 @@ export async function POST(
     if (!Number.isInteger(episode) || episode < 1)
       return NextResponse.json({ error: "Episode must be a positive number." }, { status: 400 });
     if (typeof url !== "string" || !isSafeUrl(url))
-      return NextResponse.json({ error: "Enter a valid http(s) URL." }, { status: 400 });
+      return NextResponse.json({ error: "Enter a valid https:// URL." }, { status: 400 });
 
     const actor = await getActor(req, un);
     if (!actor) return unauthorized();
     const user = { id: actor.id };
+    const rl = rateLimit(`source:${actor.id}`, 10, 60000);
+    if (!rl.ok) return tooMany(rl.retryAfter);
 
     const localId = await ensureAnimeCached(anilistId);
 

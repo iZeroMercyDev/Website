@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getActor, unauthorized } from "@/server/auth/actor";
 import { prisma } from "@/server/db";
+import { ensureAnimeCached } from "@/server/services/ensure-anime";
 
 export async function GET(req: NextRequest) {
   const actor = await getActor(req, req.nextUrl.searchParams.get("username"));
@@ -49,32 +50,39 @@ export async function POST(req: NextRequest) {
     const epNum  = typeof episodeNumber === "number" ? episodeNumber : Number(episodeNumber);
     const prog   = typeof progress  === "number" ? progress  : Number(progress  ?? 0);
     const dur    = typeof duration  === "number" ? duration  : Number(duration  ?? 0);
-    if (!un || !animeId) return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
-    if (!Number.isFinite(epNum) || epNum < 1 || !Number.isInteger(epNum))
+    if (!un || typeof animeId !== "string" || !/^anilist:\d{1,9}$/.test(animeId))
+      return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
+    if (!Number.isFinite(epNum) || epNum < 1 || epNum > 10000 || !Number.isInteger(epNum))
       return NextResponse.json({ error: "Invalid episode number." }, { status: 400 });
-    if (!Number.isFinite(prog) || prog < 0)
+    if (!Number.isFinite(prog) || prog < 0 || prog > 100000 || !Number.isFinite(dur) || dur < 0 || dur > 100000)
       return NextResponse.json({ error: "Invalid progress." }, { status: 400 });
 
     const actor = await getActor(req, un);
     if (!actor) return unauthorized();
     const user = { id: actor.id };
 
-    // Ensure the Anime row exists — WatchHistory has a required FK to Anime.
-    // Use the animeId as both id and a URL-safe slug so the upsert always succeeds.
-    const slug = String(animeId).replace(/[^a-z0-9-]/gi, "-").toLowerCase();
-    await prisma.anime.upsert({
-      where: { id: animeId },
-      create: {
-        id: animeId,
-        slug,
-        title: animeTitle || animeId,
-        coverImage: animeCover || null,
-      },
-      update: {
-        ...(animeTitle ? { title: animeTitle } : {}),
-        ...(animeCover ? { coverImage: animeCover } : {}),
-      },
-    });
+    const thumb =
+      typeof episodeThumbnail === "string" && /^https?:\/\//i.test(episodeThumbnail) && episodeThumbnail.length <= 1000
+        ? episodeThumbnail
+        : null;
+
+    // WatchHistory needs an Anime row. Never trust client-sent titles/covers:
+    // take metadata from AniList (cached). Only if AniList is unreachable, fall back to a minimal row.
+    try {
+      await ensureAnimeCached(Number(animeId.slice("anilist:".length)));
+    } catch {
+      const safeTitle =
+        typeof animeTitle === "string" && animeTitle.trim() ? animeTitle.trim().slice(0, 200) : animeId;
+      const safeCover =
+        typeof animeCover === "string" && /^https?:\/\//i.test(animeCover) && animeCover.length <= 500
+          ? animeCover
+          : null;
+      await prisma.anime.upsert({
+        where: { id: animeId },
+        create: { id: animeId, slug: animeId.replace(":", "-"), title: safeTitle, coverImage: safeCover },
+        update: {},
+      });
+    }
 
     const entry = await prisma.watchHistory.upsert({
       where: { userId_animeId_episodeNumber: { userId: user.id, animeId, episodeNumber: epNum } },
@@ -86,14 +94,14 @@ export async function POST(req: NextRequest) {
         duration: Math.max(0, dur),
         completed: completed === true,
         watchedAt: new Date(),
-        episodeThumbnail: episodeThumbnail ?? null,
+        episodeThumbnail: thumb,
       },
       update: {
         progress: prog,
         duration: Math.max(0, dur),
         completed: completed === true,
         watchedAt: new Date(),
-        ...(episodeThumbnail ? { episodeThumbnail } : {}),
+        ...(thumb ? { episodeThumbnail: thumb } : {}),
       },
     });
 
