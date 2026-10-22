@@ -73,14 +73,15 @@ export async function pushProgressToAniList(
   progress:       number,
 ): Promise<void> {
   // Check the user's current list entry before mutating anything
-  let entry: { status?: string; progress?: number } | null = null;
+  type ListEntry = { status?: string; progress?: number };
+  let entry: ListEntry | null = null;
   try {
     const check = await gql(token, `
       query ($mediaId: Int) {
         MediaList(mediaId: $mediaId, type: ANIME) { status progress }
       }
     `, { mediaId: anilistMediaId });
-    entry = (check.data?.MediaList as typeof entry) ?? null;
+    entry = (check.data?.MediaList as ListEntry | null | undefined) ?? null;
   } catch {
     return; // if the check fails, don't risk accidental list changes
   }
