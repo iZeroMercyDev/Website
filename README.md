@@ -1,91 +1,94 @@
 # Bankai
 
-A modern anime streaming platform — an original implementation inspired by the Miruro UX. Built with Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS, Framer Motion, TanStack Query, Zustand, Prisma, and NextAuth.
+Anime browsing and watching app built with Next.js (App Router), Prisma/PostgreSQL and AniList metadata.
+Features: browse/search/schedule, anime pages, watch page with history and resume, personal list, reviews & comments,
+watch parties, AniList account sync, profiles with uploads, settings, data export, and an admin dashboard.
 
-> Uses only original code and AniList's public API. No copyrighted assets, branding, or third-party source code are included.
+## Tech stack
+
+Next.js 15 · React 19 · TypeScript · Tailwind CSS · Prisma 6 + PostgreSQL · Zustand · zod · bcryptjs · Vercel Blob (uploads)
 
 ## Quick start
 
 ```bash
 npm install
-cp .env.example .env      # works out of the box in mock mode
-npm run dev               # http://localhost:3000
+cp .env.example .env          # set DATABASE_URL and AUTH_SECRET at minimum
+npm run db:push               # create tables
+SEED_ADMIN_USERNAME=you SEED_ADMIN_PASSWORD='at-least-10-chars' npm run db:seed
+npm run dev                   # http://localhost:3000
 ```
 
-The app boots in **`mock` mode** with bundled demo data and a public sample HLS stream, so it runs fully offline with zero API keys or database.
+Local Postgres: `docker compose up db -d` (connection string is in `.env.example`).
 
-## Data providers (modular adapters)
+## Environment variables
 
-Switch the backing source with one env var — `DATA_PROVIDER`:
+Validated at server start by `src/lib/env.ts`; the log lists optional features that are switched off.
 
-| Value     | Source                              | Keys |
-|-----------|-------------------------------------|------|
-| `mock`    | Bundled demo dataset (default)      | none |
-| `anilist` | AniList GraphQL (live metadata)     | none |
-| `jikan`   | Jikan / MyAnimeList REST (live)     | none |
-
-Each adapter lives in `services/providers/<name>/` and implements the `AnimeProvider` interface (`services/providers/types.ts`). Add TMDB/Consumet by dropping in a new folder and registering it in `services/providers/index.ts`.
-
-> Streaming sources: AniList/Jikan don't serve video, so playback falls back to a public demo HLS stream. Wire a real provider (e.g. Consumet) into `getStream()` for live video.
-
-## Database & auth (optional for local dev)
-
-- **Postgres + Prisma** persist users, cross-device history, and watchlists.
-  ```bash
-  docker compose up -d db        # or use your own Postgres
-  npm run db:push                # create tables
-  npm run db:seed                # load demo anime
-  ```
-- **NextAuth (Auth.js v5)** — `lib/auth.ts`. OAuth buttons (Google/Discord/GitHub) appear automatically when their env vars are set; a demo email login and guest mode always work. Uses JWT sessions so it runs without a DB.
-
-Without a database, history/watchlist/favorites persist locally via Zustand + `localStorage`, so every page is fully functional in dev.
+| Variable | Required | Purpose |
+|---|---|---|
+| `DATABASE_URL` | yes | PostgreSQL connection string |
+| `AUTH_SECRET` | recommended | Signs login sessions (16+ chars). **Without it the app runs in insecure legacy mode and `/admin` is locked.** Generate: `openssl rand -base64 32` |
+| `STREAMING_API_URL` | no | Playback API base URL (must start with `https://`) |
+| `ANILIST_CLIENT_ID` / `ANILIST_CLIENT_SECRET` | no | AniList account linking |
+| `BLOB_READ_WRITE_TOKEN` | no | Profile picture / banner uploads |
+| `ASSEMBLYAI_API_KEY` | no | Live captions |
+| `OPENAI_API_KEY` / `GROQ_API_KEY` | no | AI captions / translation |
+| `FANART_TV_API_KEY` | no | Anime logos |
+| `SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD` | seed only | Creates or promotes the admin user |
 
 ## Scripts
 
-| Command            | Description                       |
-|--------------------|-----------------------------------|
-| `npm run dev`      | Dev server                        |
-| `npm run build`    | Production build (`prisma generate` + `next build`) |
-| `npm run start`    | Run production build              |
-| `npm run typecheck`| `tsc --noEmit`                    |
-| `npm run db:push`  | Sync Prisma schema to DB          |
-| `npm run db:seed`  | Seed demo data                    |
-
-## Docker
-
-```bash
-docker compose up --build         # web + postgres + redis
-```
+| Script | What it does |
+|---|---|
+| `npm run dev` / `build` / `start` | Develop, production build (runs `prisma generate`), serve |
+| `npm run typecheck` / `lint` | TypeScript and ESLint checks (also run in CI) |
+| `npm run db:push` | Sync the Prisma schema to the database |
+| `npm run db:migrate` / `db:studio` | Create a migration / browse data |
+| `npm run db:seed` | Idempotent seed: admin user + welcome announcement |
 
 ## Project structure
 
 ```
-app/                 # routes (App Router) + API route handlers (the backend)
-  api/               # /anime, /search, /schedule, /genres, /user/*, /auth/*
-  anime/[slug]/      # details page
-  watch/[slug]/      # watch page
-components/
-  ui/                # shadcn-style primitives (button, card, dialog, tabs, …)
-  layout/            # navbar, sidebar, mobile nav, app shell
-  anime/             # card, row, grid, hero, genre grid
-  search/            # command palette
-features/            # feature modules (browse, schedule, watch, profile, …)
-hooks/               # reusable client hooks
-lib/                 # utils, config, auth, prisma, nav
-services/
-  providers/         # mock | anilist | jikan adapters + factory
-  client.ts          # client-side fetchers (hit /api)
-store/               # Zustand stores (ui, history, watchlist, player)
-types/               # domain + next-auth types
-prisma/              # schema + seed
+src/
+  app/            Routing only. Route groups: (public) (auth) (user), plus watch/, admin/, api/
+  features/       One folder per feature (anime, watch, browse, home, profile, ...), each with components/
+  components/     Shared UI: ui/ and layout/
+  server/         Backend-only code (never import from client components)
+    auth/         session.ts (signed cookie), actor.ts (who is calling), guards.ts (requireAdmin), cookie.ts
+    db/           Prisma client
+    providers/    metadata/ (AniList, Jikan) and playback/ (stream sources)
+    services/     Business logic (AniList sync/push, anime cache)
+    cache/        API response cache
+    security/     rate-limit.ts
+    repositories/ Reserved for DB query modules
+  lib/            env.ts (zod validation), utils.ts
+  hooks/ store/ types/ styles/
+  middleware.ts   Gates /admin and /api/admin
+  instrumentation.ts  Runs env validation on server start
+prisma/           schema.prisma, seed.ts
+docs/             architecture.md
+tests/            unit/ integration/ e2e/ (placeholders)
 ```
 
-## Implemented
+## Authentication
 
-Homepage (hero carousel, curated rows, genres) · Trending/Browse (filters, sort, infinite scroll) · Schedule (weekday tabs, live countdowns, timezone) · Anime Details (banner, tabs: overview/episodes/characters/reviews/recommendations, trailer, comments, actions) · Watch (custom HLS player with quality/speed/PiP/subtitles/skip-intro/keyboard shortcuts, sub-dub & server switch, episode list) · Auth · Profile (stats, achievements) · History (grouped, resume, clear) · Watchlist (status tabs, favorites, sort) · Settings · Admin dashboard · responsive desktop/tablet/mobile with bottom nav + slide-out menu.
+- Login/signup set an `httpOnly` signed session cookie (`bankai_session`, 30 days, HMAC-SHA256).
+- API routes identify the caller with `getActor(req)` from the cookie, never from a username sent by the client.
+  Roles (`USER`, `MODERATOR`, `ADMIN`) are always re-read from the database.
+- `/admin` is protected twice: `middleware.ts` and `requireAdmin()` in the page.
+- Public by design: reading comments/reviews/sources, party lookup by code, public profiles.
+- Rate limits protect login, signup and write endpoints. The limiter is in-memory per server instance;
+  use a shared store (e.g. Upstash Redis) for hard global limits.
 
-## Notes / next steps
+## Deployment
 
-- `/admin` is not role-gated in this demo — add an `ADMIN` role check in middleware before exposing it.
-- Replace the demo Credentials provider with a real password flow (bcrypt) and the Prisma adapter for DB-backed sessions.
-- Plug a real streaming resolver into `getStream()`.
+- **Vercel:** set the env vars above, then run `npm run db:push` once against the production database
+  (the build only runs `prisma generate`).
+- **Docker:** `docker compose up --build` (the container runs `prisma db push` on start).
+- **Render:** see `render.yaml`.
+
+## Before going public
+
+- **Playback sources.** Streams are currently fetched through third-party playback APIs. Use only sources you have
+  the rights to, and keep them behind `src/server/providers/playback/`.
+- Add tests for the auth/session and rate-limit modules, and run CI on every pull request.
