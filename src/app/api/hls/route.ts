@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { assertPublicHttpUrl, safeFetch } from "@/server/security/url-guard";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
@@ -65,16 +66,19 @@ export async function GET(request: Request) {
 
   // Block requests that try to proxy something other than the streaming API
   // (basic SSRF guard — only allow http/https with a host)
-  let parsed: URL;
-  try {
-    parsed = new URL(targetUrl);
-    if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("bad protocol");
-  } catch {
+  // Refuse requests that another website's page triggers inside a visitor's browser.
+  if (request.headers.get("sec-fetch-site") === "cross-site") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Only public http(s) targets (no localhost / private ranges / credentials), also after redirects.
+  const parsed = await assertPublicHttpUrl(targetUrl);
+  if (!parsed) {
     return NextResponse.json({ error: "Invalid url" }, { status: 400 });
   }
 
   try {
-    const upstream = await fetch(targetUrl, {
+    const upstream = await safeFetch(targetUrl, {
       headers: {
         "User-Agent": UA,
         "Accept": "*/*",

@@ -1,4 +1,6 @@
 import { NextRequest } from "next/server";
+import { safeFetch } from "@/server/security/url-guard";
+import { rateLimit, clientIp, tooMany } from "@/server/security/rate-limit";
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -12,7 +14,7 @@ async function fetchSegment(proxiedUrl: string): Promise<Response> {
       const ref = u.searchParams.get("ref") ?? "";
       if (targetUrl) {
         const parsed = new URL(targetUrl);
-        return fetch(targetUrl, {
+        return safeFetch(targetUrl, {
           headers: {
             "User-Agent": UA,
             Accept: "*/*",
@@ -24,7 +26,7 @@ async function fetchSegment(proxiedUrl: string): Promise<Response> {
       }
     }
   } catch {}
-  return fetch(proxiedUrl, { headers: { "User-Agent": UA, Accept: "*/*" }, signal: AbortSignal.timeout(30_000) });
+  return safeFetch(proxiedUrl, { headers: { "User-Agent": UA, Accept: "*/*" }, signal: AbortSignal.timeout(30_000) });
 }
 
 interface ParsedPlaylist {
@@ -106,6 +108,9 @@ export async function GET(req: NextRequest) {
   if (!streamUrl) {
     return Response.json({ error: "Missing url" }, { status: 400 });
   }
+
+  const rl = rateLimit(`download:${clientIp(req)}`, 10, 10 * 60 * 1000);
+  if (!rl.ok) return tooMany(rl.retryAfter);
 
   try {
     const { initUrl, segmentUrls } = await resolveMediaPlaylist(streamUrl);

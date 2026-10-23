@@ -24,7 +24,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ code: 
   const party = await getParty(code);
   if (!party) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const body = await req.json() as {
+  const raw: unknown = await req.json().catch(() => null);
+  if (!raw || typeof raw !== "object") return NextResponse.json({ error: "Invalid JSON." }, { status: 400 });
+  const body = raw as {
     username?: string; episode?: number; currentTime?: number; isPlaying?: boolean; join?: boolean; leave?: boolean;
   };
   const { episode, currentTime, isPlaying, join, leave } = body;

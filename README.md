@@ -79,6 +79,8 @@ tests/            unit/ integration/ e2e/ (placeholders)
 - Public by design: reading comments/reviews/sources, party lookup by code, public profiles.
 - Rate limits protect login, signup and write endpoints. The limiter is in-memory per server instance;
   use a shared store (e.g. Upstash Redis) for hard global limits.
+- The proxy routes (`/api/hls`, `/api/download`) only fetch public http(s) hosts: localhost, private ranges and
+  credentials in URLs are refused, also after redirects (`src/server/security/url-guard.ts`).
 
 ## Deployment
 

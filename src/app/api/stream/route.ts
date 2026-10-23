@@ -93,6 +93,17 @@ export async function GET(request: Request) {
     return NextResponse.json({ stream_url: episodeId, subtitles: [], intro: null, outro: null });
   }
 
+  // These values are placed into the upstream API path: reject anything that could change that path.
+  const bad =
+    (episodeId && (episodeId.length > 300 || /\.\.|[\s\\@]|:\/\/|^\//.test(episodeId))) ||
+    (provider && !/^[\w-]{1,30}$/.test(provider)) ||
+    (animeId && (!/^[\w:.-]{1,60}$/.test(animeId) || animeId.includes(".."))) ||
+    !/^[\w-]{1,12}$/.test(audio) ||
+    !/^[\d.]{1,8}$/.test(episode);
+  if (bad) {
+    return NextResponse.json({ error: "Invalid parameters." }, { status: 400 });
+  }
+
   let targetUrl: string;
   if (episodeId) {
     targetUrl = `${STREAMING_BASE}/${episodeId}`;
